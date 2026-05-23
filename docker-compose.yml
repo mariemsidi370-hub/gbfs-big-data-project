@@ -1,0 +1,57 @@
+﻿services:
+  postgres:
+    image: postgres:13
+    container_name: gbfs_postgres
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:latest
+    container_name: gbfs_mongodb
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    restart: unless-stopped
+
+  trino:
+    image: trinodb/trino:latest
+    container_name: gbfs_trino
+    ports:
+      - "8081:8080"
+    restart: unless-stopped
+
+  superset:
+    image: apache/superset:latest
+    container_name: gbfs_superset
+    ports:
+      - "8089:8088"
+    environment:
+      - SUPERSET_SECRET_KEY=your_secret_key_here
+    restart: unless-stopped
+
+  airflow:
+    image: apache/airflow:2.6.3
+    container_name: gbfs_airflow
+    ports:
+      - "8080:8080"
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./airflow/logs:/opt/airflow/logs
+    depends_on:
+      - postgres
+    command: bash -c "airflow db init && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com && airflow standalone"
+    restart: unless-stopped
+
+volumes:
+  mongodb_data:
+  postgres_data:
