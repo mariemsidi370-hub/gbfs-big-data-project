@@ -36,7 +36,9 @@
     restart: unless-stopped
 
   airflow:
-    image: apache/airflow:2.6.3
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
     container_name: gbfs_airflow
     ports:
       - "8080:8080"
