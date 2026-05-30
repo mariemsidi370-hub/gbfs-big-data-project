@@ -3,15 +3,20 @@
     image: postgres:13
     container_name: gbfs_postgres
     environment:
-      - POSTGRES_USER=airflow
-      - POSTGRES_PASSWORD=airflow
-      - POSTGRES_DB=airflow
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
     restart: unless-stopped
 
   mongodb:
-    image: mongo:latest
+    image: mongo:7
     container_name: gbfs_mongodb
     ports:
       - "27017:27017"
@@ -24,6 +29,10 @@
     container_name: gbfs_trino
     ports:
       - "8081:8080"
+    volumes:
+      - ./trino/etc:/etc/trino
+    depends_on:
+      - mongodb
     restart: unless-stopped
 
   superset:
@@ -32,7 +41,7 @@
     ports:
       - "8089:8088"
     environment:
-      - SUPERSET_SECRET_KEY=your_secret_key_here
+      SUPERSET_SECRET_KEY: your_secret_key_here
     restart: unless-stopped
 
   airflow:
@@ -43,15 +52,28 @@
     ports:
       - "8080:8080"
     environment:
-      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
-      - AIRFLOW__CORE__LOAD_EXAMPLES=False
-      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      PYTHONPATH: /opt/airflow
+      MONGO_URI: mongodb://mongodb:27017
+      MONGO_DB: gbfs
     volumes:
       - ./airflow/dags:/opt/airflow/dags
       - ./airflow/logs:/opt/airflow/logs
+      - ./airflow/data:/opt/airflow/data
+      - ./pipelines:/opt/airflow/pipelines
     depends_on:
-      - postgres
-    command: bash -c "airflow db init && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com && airflow standalone"
+      postgres:
+        condition: service_healthy
+      mongodb:
+        condition: service_started
+    command: >
+      bash -c "
+        airflow db init &&
+        airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com 2>/dev/null || true &&
+        airflow standalone
+      "
     restart: unless-stopped
 
 volumes:
