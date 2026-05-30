@@ -1,0 +1,6 @@
+# Airflow logs
+airflow/logs/
+__pycache__/
+*.pyc
+desktop.ini
+Token_Git.txt
