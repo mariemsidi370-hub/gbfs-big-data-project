@@ -1,5 +1,8 @@
 """
-Airflow DAG — Station Information Pipeline (Phase 3).
+Airflow DAG — Station Status Pipeline (Phase 3).
+
+Live GBFS station_status → MongoDB (bikes, docks, occupancy).
+Schedule: every 2 minutes (feed ttl ≈ 60s).
 """
 from __future__ import annotations
 
@@ -10,7 +13,7 @@ from pathlib import Path
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 
-DATA_DIR = Path("/opt/airflow/data/station_info")
+DATA_DIR = Path("/opt/airflow/data/station_status")
 RAW_FILE = DATA_DIR / "raw_payload.json"
 DOCS_FILE = DATA_DIR / "documents.json"
 
@@ -18,7 +21,7 @@ default_args = {
     "owner": "gbfs-team",
     "depends_on_past": False,
     "retries": 2,
-    "retry_delay": timedelta(minutes=5),
+    "retry_delay": timedelta(minutes=1),
 }
 
 
@@ -38,33 +41,33 @@ def _doc_from_json(doc: dict) -> dict:
     return out
 
 
-def fetch_gbfs_station_information() -> str:
-    from pipelines.station_info_pipeline import fetch_station_information
+def fetch_gbfs_station_status() -> str:
+    from pipelines.station_status_pipeline import fetch_station_status
 
     DATA_DIR.mkdir(parents=True, exist_ok=True)
-    payload = fetch_station_information()
+    payload = fetch_station_status()
     RAW_FILE.write_text(json.dumps(payload), encoding="utf-8")
     return str(RAW_FILE)
 
 
-def transform_station_documents(**context) -> str:
-    from pipelines.station_info_pipeline import transform_all
+def transform_status_documents(**context) -> str:
+    from pipelines.station_status_pipeline import transform_all
 
-    raw_path = context["ti"].xcom_pull(task_ids="fetch_gbfs_station_information")
+    raw_path = context["ti"].xcom_pull(task_ids="fetch_gbfs_station_status")
     payload = json.loads(Path(raw_path).read_text(encoding="utf-8"))
     documents = [_doc_to_jsonable(d) for d in transform_all(payload)]
     DOCS_FILE.write_text(json.dumps(documents), encoding="utf-8")
     return str(DOCS_FILE)
 
 
-def load_station_information_mongodb(**context) -> dict:
-    from pipelines.station_info_pipeline import insert_snapshot, upsert_stations
+def load_station_status_mongodb(**context) -> dict:
+    from pipelines.station_status_pipeline import insert_snapshot, upsert_statuses
 
-    docs_path = context["ti"].xcom_pull(task_ids="transform_station_documents")
+    docs_path = context["ti"].xcom_pull(task_ids="transform_status_documents")
     raw_documents = json.loads(Path(docs_path).read_text(encoding="utf-8"))
     documents = [_doc_from_json(d) for d in raw_documents]
 
-    stats = upsert_stations(documents)
+    stats = upsert_statuses(documents)
     snapshot_id = insert_snapshot(documents)
     return {
         "stations_processed": len(documents),
@@ -74,24 +77,24 @@ def load_station_information_mongodb(**context) -> dict:
 
 
 with DAG(
-    dag_id="station_info_pipeline",
+    dag_id="station_status_pipeline",
     default_args=default_args,
-    description="GBFS station_information → MongoDB",
-    schedule_interval="0 */6 * * *",
+    description="GBFS station_status → MongoDB (bikes, docks, occupancy)",
+    schedule_interval="*/2 * * * *",
     start_date=datetime(2026, 5, 1),
     catchup=False,
-    tags=["gbfs", "station_info", "velib", "phase3"],
+    tags=["gbfs", "station_status", "velib", "phase3"],
 ) as dag:
     fetch_task = PythonOperator(
-        task_id="fetch_gbfs_station_information",
-        python_callable=fetch_gbfs_station_information,
+        task_id="fetch_gbfs_station_status",
+        python_callable=fetch_gbfs_station_status,
     )
     transform_task = PythonOperator(
-        task_id="transform_station_documents",
-        python_callable=transform_station_documents,
+        task_id="transform_status_documents",
+        python_callable=transform_status_documents,
     )
     load_task = PythonOperator(
-        task_id="load_station_information_mongodb",
-        python_callable=load_station_information_mongodb,
+        task_id="load_station_status_mongodb",
+        python_callable=load_station_status_mongodb,
     )
     fetch_task >> transform_task >> load_task
