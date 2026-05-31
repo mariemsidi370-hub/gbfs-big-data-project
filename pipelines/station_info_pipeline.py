@@ -108,7 +108,7 @@ def upsert_stations(documents: list, *, mongo_uri=None, db_name=None, collection
     if not documents:
         return {"inserted": 0, "modified": 0, "matched": 0}
 
-    client = get_mongo_client(mongo_uri)
+    client = get_mongo_client("mongodb://mongodb:27017/")
     coll = client[db_name or MONGO_DB][collection_name or STATION_INFO_COLLECTION]
 
     operations = [

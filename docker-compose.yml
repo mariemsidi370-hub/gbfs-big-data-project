@@ -16,7 +16,7 @@
     restart: unless-stopped
 
   mongodb:
-    image: mongo:7
+    image: mongo:latest
     container_name: gbfs_mongodb
     ports:
       - "27017:27017"
@@ -39,7 +39,7 @@
   superset:
     build:
       context: .
-      dockerfile: Dockerfile.superset
+      dockerfile: Dockerfile.superset.final
     container_name: gbfs_superset
     ports:
       - "8089:8088"
