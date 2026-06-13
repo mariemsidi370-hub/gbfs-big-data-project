@@ -1,6 +1,4 @@
-"""
-Airflow DAG — Station Information Pipeline (Phase 3).
-"""
+
 from __future__ import annotations
 
 import json
