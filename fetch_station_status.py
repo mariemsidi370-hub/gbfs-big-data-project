@@ -1,4 +1,3 @@
-"""Phase 2 manual entry point — runs the Station Status pipeline."""
 import sys
 from pathlib import Path
 
