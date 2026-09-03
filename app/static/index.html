@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vélib' Live — GBFS Demo</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <link rel="stylesheet" href="/static/css/style.css" />
+</head>
+<body>
+  <!-- Écran login / inscription -->
+  <div id="authScreen" class="auth-screen">
+    <div class="auth-card">
+      <div class="auth-brand">
+        <span class="logo">V</span>
+        <div>
+          <h1>Vélib' Live</h1>
+          <p>Connectez-vous pour accéder à l'application</p>
+        </div>
+      </div>
+
+      <div class="auth-tabs">
+        <button type="button" class="auth-tab active" data-tab="login">Connexion</button>
+        <button type="button" class="auth-tab" data-tab="register">Créer un compte</button>
+      </div>
+
+      <form id="loginForm" class="auth-form">
+        <label>Identifiant</label>
+        <input id="loginUsername" type="text" autocomplete="username" required minlength="3" />
+        <label>Mot de passe</label>
+        <input id="loginPassword" type="password" autocomplete="current-password" required minlength="6" />
+        <button type="submit" class="btn primary">Se connecter</button>
+      </form>
+
+      <form id="registerForm" class="auth-form hidden">
+        <label>Identifiant</label>
+        <input id="registerUsername" type="text" autocomplete="username" required minlength="3" maxlength="30" />
+        <label>Prénom / pseudo affiché</label>
+        <input id="registerDisplayName" type="text" maxlength="30" placeholder="Optionnel" />
+        <label>Mot de passe (min. 6 caractères)</label>
+        <input id="registerPassword" type="password" autocomplete="new-password" required minlength="6" />
+        <button type="submit" class="btn primary">Créer mon compte</button>
+      </form>
+
+      <p id="authError" class="auth-error hidden"></p>
+    </div>
+  </div>
+
+  <!-- Application principale (après login) -->
+  <div id="appScreen" class="hidden">
+    <header>
+      <div class="brand">
+        <span class="logo">V</span>
+        <div>
+          <h1>Vélib' Live</h1>
+          <p>Bienvenue, <span id="displayNameLabel">—</span></p>
+        </div>
+      </div>
+      <div class="header-actions">
+        <div class="status" id="connectionStatus">Connexion…</div>
+        <button id="logoutBtn" class="btn ghost btn-sm">Déconnexion</button>
+      </div>
+    </header>
+
+    <main>
+      <section class="sidebar">
+        <div class="panel">
+          <h2>Ma position</h2>
+          <button id="locateBtn" class="btn primary">Utiliser ma position</button>
+          <p class="hint" id="locationHint">Position requise pour les stations proches et les utilisateurs.</p>
+        </div>
+
+        <div class="panel">
+          <h2>Stations proches <span id="stationCount" class="badge">0</span></h2>
+          <div id="stationList" class="list"></div>
+        </div>
+
+        <div class="panel">
+          <h2>Utilisateurs proches <span id="userCount" class="badge">0</span></h2>
+          <div id="userList" class="list"></div>
+        </div>
+
+        <div class="panel chat-panel hidden" id="chatPanel">
+          <h2>Contact — <span id="chatTarget"></span></h2>
+          <div id="chatMessages" class="chat-messages"></div>
+          <div class="chat-input">
+            <input id="chatInput" type="text" placeholder="Votre message…" maxlength="500" />
+            <button id="chatSend" class="btn">Envoyer</button>
+          </div>
+          <button id="chatClose" class="btn ghost">Fermer</button>
+        </div>
+      </section>
+
+      <section class="map-wrap">
+        <div id="map"></div>
+        <div class="legend">
+          <span><i class="dot green"></i> Vélos dispo</span>
+          <span><i class="dot orange"></i> Peu de vélos</span>
+          <span><i class="dot red"></i> Vide</span>
+          <span><i class="dot blue"></i> Vous / utilisateurs</span>
+          <span>Petits points = stations plus loin</span>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="/static/js/app.js"></script>
+</body>
+</html>

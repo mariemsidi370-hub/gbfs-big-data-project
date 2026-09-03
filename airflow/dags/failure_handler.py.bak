@@ -1,0 +1,157 @@
+from __future__ import annotations
+
+import json
+import random
+from datetime import datetime, timedelta
+from pathlib import Path
+
+from airflow import DAG
+from airflow.operators.python import PythonOperator
+from airflow.exceptions import AirflowException
+from airflow.utils.trigger_rule import TriggerRule
+
+# KEEP YOUR EXISTING CALLBACK IMPORT
+from callbacks import on_failure_callback
+
+print("🔴 DAG FILE IS BEING PARSED")
+print(f"🔴 CALLBACK IMPORTED: {on_failure_callback}")
+
+DATA_DIR = Path("/opt/airflow/data/station_status")
+RAW_FILE = DATA_DIR / "raw_payload.json"
+DOCS_FILE = DATA_DIR / "documents.json"
+
+default_args = {
+    "owner": "gbfs-team",
+    "depends_on_past": False,
+    "retries": 0,
+    "retry_delay": timedelta(minutes=1),
+}
+
+def doc_to_jsonable(doc: dict) -> dict:
+    out = dict(doc)
+    ingested = out.get("ingested_at")
+    if isinstance(ingested, datetime):
+        out["ingested_at"] = ingested.isoformat()
+    return out
+
+def doc_from_json(doc: dict) -> dict:
+    out = dict(doc)
+    ingested = out.get("ingested_at")
+    if isinstance(ingested, str):
+        out["ingested_at"] = datetime.fromisoformat(ingested)
+    return out
+
+def flaky_fetch(**context):
+    """Flaky version that fails 100% of the time."""
+    print("🔴 flaky_fetch executing - about to fail!")
+    
+    # Push to XCom BEFORE failing (so we have the error even if callback fails)
+    try:
+        raise AirflowException("Dynamic task mapping exceeded limit")
+    except Exception as e:
+        ti = context['ti']
+        ti.xcom_push(key="error_message", value=str(e))
+        ti.xcom_push(key="failed_task_id", value="fetch_gbfs_station_status")
+        ti.xcom_push(key="dag_id", value="station_status_pipeline")
+        print(f"🔴 Manually pushed error to XCom: {e}")
+        raise  # Re-raise to fail the task
+
+def transform_status_documents(**context) -> str:
+    from pipelines.station_status_pipeline import transform_all
+    raw_path = context["ti"].xcom_pull(task_ids="fetch_gbfs_station_status")
+    payload = json.loads(Path(raw_path).read_text(encoding="utf-8"))
+    documents = [doc_to_jsonable(d) for d in transform_all(payload)]
+    DOCS_FILE.write_text(json.dumps(documents), encoding="utf-8")
+    return str(DOCS_FILE)
+
+def load_station_status_mongodb(**context) -> dict:
+    from pipelines.station_status_pipeline import insert_snapshot, upsert_statuses
+    docs_path = context["ti"].xcom_pull(task_ids="transform_status_documents")
+    raw_documents = json.loads(Path(docs_path).read_text(encoding="utf-8"))
+    documents = [doc_from_json(d) for d in raw_documents]
+
+    stats = upsert_statuses(documents)
+    snapshot_id = insert_snapshot(documents)
+    return {
+        "stations_processed": len(documents),
+        "upsert_stats": stats,
+        "snapshot_id": snapshot_id,
+    }
+
+# NEW: Failure handler task that runs when fetch fails
+def handle_task_failure(**context):
+    """This task handles failures from fetch_gbfs_station_status."""
+    print("🔴🔴🔴 HANDLE_TASK_FAILURE EXECUTING! 🔴🔴🔴")
+    
+    # Get error info from XCom (pushed manually in flaky_fetch)
+    ti = context['ti']
+    error_message = ti.xcom_pull(key="error_message", task_ids="fetch_gbfs_station_status")
+    failed_task_id = ti.xcom_pull(key="failed_task_id", task_ids="fetch_gbfs_station_status")
+    dag_id = ti.xcom_pull(key="dag_id", task_ids="fetch_gbfs_station_status")
+    
+    print(f"🔴 Error: {error_message}")
+    print(f"🔴 Failed Task: {failed_task_id}")
+    print(f"🔴 DAG: {dag_id}")
+    
+    # Now call your decision engine
+    try:
+        from decision_engine import make_decision
+        decision = make_decision(error_message)
+        print(f"🔴 Decision from LLM: {decision}")
+        
+        # Store decision in XCom
+        ti.xcom_push(key="decision", value=decision)
+        
+        return {"status": "handled", "decision": decision}
+    except Exception as e:
+        print(f"❌ Error in decision engine: {e}")
+        import traceback
+        traceback.print_exc()
+        return {"status": "error", "error": str(e)}
+
+with DAG(
+    dag_id="station_status_pipeline",
+    default_args=default_args,
+    description="GBFS station_status → MongoDB (bikes, docks, occupancy)",
+    schedule_interval="*/2 * * * *",
+    start_date=datetime(2026, 5, 1),
+    catchup=False,
+    tags=["gbfs", "station_status", "velib", "phase3"],
+    # KEEP YOUR EXISTING CALLBACK AT DAG LEVEL
+    on_failure_callback=on_failure_callback,
+) as dag:
+    print("🔴 DAG being created")
+    
+    fetch_task = PythonOperator(
+        task_id="fetch_gbfs_station_status",
+        python_callable=flaky_fetch,
+        provide_context=True,
+        # KEEP YOUR EXISTING CALLBACK AT TASK LEVEL
+        on_failure_callback=on_failure_callback,
+    )
+    
+    transform_task = PythonOperator(
+        task_id="transform_status_documents",
+        python_callable=transform_status_documents,
+        # KEEP YOUR EXISTING CALLBACK
+        on_failure_callback=on_failure_callback,
+    )
+    
+    load_task = PythonOperator(
+        task_id="load_station_status_mongodb",
+        python_callable=load_station_status_mongodb,
+        # KEEP YOUR EXISTING CALLBACK
+        on_failure_callback=on_failure_callback,
+    )
+    
+    # NEW: Failure handler task
+    failure_handler = PythonOperator(
+        task_id="handle_task_failure",
+        python_callable=handle_task_failure,
+        provide_context=True,
+        trigger_rule=TriggerRule.ONE_FAILED,  # Runs when any upstream task fails
+    )
+    
+    # Set up the flow
+    fetch_task >> transform_task >> load_task
+    fetch_task >> failure_handler  # If fetch fails, trigger the handler
